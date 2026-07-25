@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import os
 import re
 import shutil
@@ -41,6 +42,8 @@ import torch
 import transformers
 
 import jlens
+
+logger = logging.getLogger("jlens")
 
 
 def load_prompts(
@@ -149,6 +152,7 @@ class ConvergenceTracker:
         self.stopped_at: int | None = None
         self._crossed: dict[float, int] = {}
         self._recent: deque[float] = deque(maxlen=self.window)
+        self._early_stop_count: int = 0
         self._wandb_run = wandb_run
         self._file = open(csv_path, "w", newline="")  # noqa: SIM115 (closed in close())
         self._writer = csv.writer(self._file)
@@ -164,7 +168,7 @@ class ConvergenceTracker:
             ]
         )
 
-    def record(self, p: jlens.FitProgress) -> bool:
+    def record(self, p: jlens.FitProgress, extra_log: dict | None = None) -> bool:
         self._writer.writerow(
             [
                 p.n_done,
@@ -198,19 +202,30 @@ class ConvergenceTracker:
             if thr not in self._crossed and p.mean_rel_change < thr:
                 self._crossed[thr] = p.n_done
 
-        if (
-            self.stop_at_delta is not None
-            and p.n_done >= self.min_prompts
-            and len(self._recent) == self.window
-            and (sum(self._recent) / self.window) < self.stop_at_delta
-        ):
-            smoothed = sum(self._recent) / self.window
-            self.stopped_at = p.n_done
-            print(
-                f"Converged: {self.window}-prompt mean Δmean={smoothed:.2e} < "
-                f"{self.stop_at_delta:g} at {p.n_done} prompts — stopping early."
-            )
-            return True
+        if self.stop_at_delta is not None:
+            new_count = sum(1 for v in self._recent if v < self.stop_at_delta)
+            if new_count != self._early_stop_count:
+                self._early_stop_count = new_count
+            if extra_log is not None:
+                extra_log["early_stop"] = f"{self._early_stop_count}/{self.window}"
+
+            if (
+                p.n_done >= self.min_prompts
+                and len(self._recent) == self.window
+                and (sum(self._recent) / self.window) < self.stop_at_delta
+            ):
+                smoothed = sum(self._recent) / self.window
+                self.stopped_at = p.n_done
+                logger.info(
+                    "Converged: %d/%d recent Δmean values below %.0e, smoothed=%.2e < %.0e at %d prompts, stopping early.",
+                    self._early_stop_count,
+                    self.window,
+                    self.stop_at_delta,
+                    smoothed,
+                    self.stop_at_delta,
+                    p.n_done,
+                )
+                return True
         return False
 
     def close(self) -> None:
@@ -391,7 +406,7 @@ def main() -> None:
         load_kwargs["device_map"] = args.device_map
 
     try:
-        print(f"Loading {args.model} ({args.dtype}, device_map={args.device_map}) ...")
+        logger.info("Loading %s (%s, device_map=%s) ...", args.model, args.dtype, args.device_map)
         hf = transformers.AutoModelForCausalLM.from_pretrained(args.model, **load_kwargs)
         if single_gpu:
             hf = hf.cuda()
@@ -399,12 +414,16 @@ def main() -> None:
             args.model, cache_dir=hub_cache, trust_remote_code=args.trust_remote_code
         )
         model = jlens.from_hf(hf, tok, text_module=args.text_module, compile=not args.no_compile)
-        print(f"Wrapped: {model!r}")
+        logger.info("Wrapped: %r", model)
 
-        print(
-            f"Loading {args.n_prompts} prompts from {args.dataset}"
-            + (f" ({config})" if config else "")
-            + f" [{args.dataset_split}::{args.text_field}] ..."
+        config_display = f" ({config})" if config else ""
+        logger.info(
+            "Loading %d prompts from %s%s [%s::%s] ...",
+            args.n_prompts,
+            args.dataset,
+            config_display,
+            args.dataset_split,
+            args.text_field,
         )
         prompts = load_prompts(
             dataset=args.dataset,
@@ -416,7 +435,7 @@ def main() -> None:
             trust_remote_code=args.trust_remote_code,
         )
         if not prompts:
-            raise SystemExit("no prompts loaded — check --dataset/--dataset_config/--text_field")
+            raise SystemExit("no prompts loaded, check --dataset/--dataset_config/--text_field")
 
         wandb_run = None
         if args.wandb:
@@ -462,7 +481,7 @@ def main() -> None:
             window=args.stop_window,
             wandb_run=wandb_run,
         )
-        print(f"Fitting lens over {len(prompts)} prompts (first call compiles, ~1-2 min) ...")
+        logger.info("Fitting lens over %d prompts (first call compiles, ~1-2 min) ...", len(prompts))
         try:
             lens = jlens.fit(
                 model,
@@ -482,14 +501,14 @@ def main() -> None:
         if os.path.exists(checkpoint_path):
             os.remove(checkpoint_path)
 
-        print(f"Peak CUDA memory during fit (all GPUs): {peak_vram_gb():.2f} GB")
-        print(f"Done. Saved lens -> {lens_path}\n{lens!r}")
-        print(tracker.summary())
+        logger.info("Peak CUDA memory during fit (all GPUs): %.2f GB", peak_vram_gb())
+        logger.info("Done. Saved lens -> %s\n%r", lens_path, lens)
+        logger.info(tracker.summary())
     finally:
         # Free disk: drop the downloaded weights so they don't accumulate when
         # fitting many models in sequence. The lens (in out_dir) is unaffected.
         if cache_root and not args.keep_hf_cache:
-            print(f"Deleting HuggingFace cache to free disk: {cache_root}")
+            logger.info("Deleting HuggingFace cache to free disk: %s", cache_root)
             shutil.rmtree(cache_root, ignore_errors=True)
 
 

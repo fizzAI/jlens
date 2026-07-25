@@ -35,6 +35,7 @@ import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 
@@ -245,7 +246,7 @@ def fit(
     skip_first: int = SKIP_FIRST_N_POSITIONS,
     checkpoint_path: str | None = None,
     resume: bool = True,
-    metrics_callback: Callable[[FitProgress], bool | None] | None = None,
+    metrics_callback: Callable[[FitProgress, dict[str, Any] | None], bool | None] | None = None,
 ) -> JacobianLens:
     """Fit ``J̄_ℓ`` over a list of prompts and return a :class:`JacobianLens`.
 
@@ -268,10 +269,10 @@ def fit(
             prompt.
         resume: If ``True`` and ``checkpoint_path`` exists, resume from it.
         metrics_callback: If set, called after every successfully processed
-            prompt with a :class:`FitProgress`. Use it to log/plot the
-            convergence metric and decide how many prompts are enough. If it
-            returns a truthy value, fitting stops early (a checkpoint is still
-            written first) — e.g. to halt once the lens has converged.
+            prompt with a :class:`FitProgress` and an ``extra_log`` dict. The
+            callback may write key/value pairs into ``extra_log`` to have them
+            appended to the per-prompt log line. If it returns a truthy value,
+            fitting stops early (a checkpoint is still written first).
 
     Returns:
         The fitted :class:`JacobianLens`.
@@ -378,17 +379,7 @@ def fit(
             (jacobian_sum[late_layer] / n_done) - torch.eye(d_model)
         ).norm().item() / math.sqrt(d_model)
         elapsed_s = time.perf_counter() - start_time
-        logger.info(
-            "  prompt %d/%d  seq_len=%d n_valid=%d  %.0fs  ||J̄_%d − I||_F/√d=%.3f  Δmean=%.2e",
-            prompt_idx + 1,
-            len(prompts),
-            seq_len,
-            n_valid,
-            elapsed_s,
-            late_layer,
-            identity_distance,
-            mean_rel_change,
-        )
+        extra_log: dict[str, Any] | None = {} if metrics_callback is not None else None
         stop_requested = False
         if metrics_callback is not None:
             stop_requested = bool(
@@ -402,9 +393,25 @@ def fit(
                         elapsed_s=elapsed_s,
                         identity_distance=identity_distance,
                         mean_rel_change=mean_rel_change,
-                    )
+                    ),
+                    extra_log,
                 )
             )
+        log_parts = [
+            "  prompt %d/%d  seq_len=%d n_valid=%d  %.0fs  ||J̄_%d − I||_F/√d=%.3f  Δmean=%.2e",
+            prompt_idx + 1,
+            len(prompts),
+            seq_len,
+            n_valid,
+            elapsed_s,
+            late_layer,
+            identity_distance,
+            mean_rel_change,
+        ]
+        if extra_log:
+            fmt_extra = "  ".join(f"{k}={v}" for k, v in extra_log.items())
+            log_parts[0] += "  " + fmt_extra
+        logger.info(*log_parts)
         write_checkpoint()
         if stop_requested:
             logger.info("  metrics_callback requested early stop after %d prompts", n_done)
