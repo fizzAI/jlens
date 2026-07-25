@@ -59,10 +59,9 @@ lens.save("out/jacobian_lens.pt")
 ```
 
 The paper's lenses use 1000 sequences of 128 tokens from a pretraining-like
-corpus. Quality saturates quickly (see section 9.3 of the paper); ~100 prompts
-is usable. This is a reference implementation and is not optimized; fitting
-time is dominated by the model's own backward pass. Parallelize by running
-`fit()` on disjoint slices and combining with `JacobianLens.merge()`.
+corpus. Quality saturates quickly (see section 9.3 of the paper), though, and
+~100 prompts is usable. You can parallelize fitting by running multiple `fit()`s
+on different slices of your data, then combining all of them with `JacobianLens.merge()`.
 
 ## License
 
