@@ -1,35 +1,26 @@
-# jlens — Jacobian lens
+# jlens — Jacobian lens (fork)
 
-> **Reference implementation.** Not maintained and not accepting contributions.
+> This is a fork of the original [jlens](https://github.com/anthropics/jlens) repository. This code is not maintained and is not accepting contributions.
 
 Companion code for [**Verbalizable Representations Form a Global Workspace in
 Language Models**](https://transformer-circuits.pub/2026/workspace/index.html).
 
-The Jacobian lens reads out what an internal activation is disposed to make the
-model say. It linearly transports a residual-stream vector at any layer and
-position into the final-layer basis, then decodes it with the model's own
-unembedding into a ranked list of vocabulary tokens.
+The Jacobian lens maps an internal activation vector (at any layer and position)
+into the final-layer vocabulary space, then decodes it with the unembedding
+matrix into a ranked list of tokens. This shows you what a given activation is
+poised to contribute to the model's output.
 
-The transport is the average input–output Jacobian over a text corpus:
+The mapping is the average input–output Jacobian over a text corpus:
 
-```
-lens_l(h) = unembed( J_l @ h ), J_l = E[∂h_final / ∂h_l]
-```
+$`\text{lens}_l(h) = \text{unembed}(J_l \cdot h), \quad J_l = \mathbb{E}\left[\frac{\partial h_{\text{final}}}{\partial h_l}\right]`$
 
 The expectation is over prompts, source positions, and all current-and-future
-target positions in a generic web-text corpus; the precise estimator
+target positions in a generic web-text corpus; the estimator used
 (cotangents summed over target positions, then averaged over source positions)
-is documented in the [`jlens.fitting`](jlens/fitting.py) module docstring.
+is documented in [`jlens.fitting`](jlens/fitting.py).
 
-This repo fits the lens on open-weights decoder transformers, applies it, and
-renders the interactive layer × position view shown below. Examples use Qwen;
-other HuggingFace decoders adapt cleanly.
-
-![Slice visualisation: ASCII-face example](assets/slice_vis.png)
-
-*The ASCII-face example: selecting the `^` (nose) position shows the lens
-reading out "nose" at mid layers, although the word never appears in the
-prompt.*
+This repo allows you to use and fit lens on open-weights decoder transformers, via
+the `transformers` library.
 
 ## Install
 
@@ -37,11 +28,11 @@ prompt.*
 pip install -e .
 ```
 
-## Usage
+## Usage as a Library
 
-### Apply
+### Infer
 
-To apply a pre-fitted lens:
+To run inference with a pre-fitted lens:
 
 ```python
 import transformers, jlens
@@ -68,37 +59,11 @@ lens.save("out/jacobian_lens.pt")
 ```
 
 The paper's lenses use 1000 sequences of 128 tokens from a pretraining-like
-corpus. Quality saturates quickly (§9.3); ~100 prompts is usable. This is a
-reference implementation and is not optimized; fitting time is dominated by
-the model's own backward pass. Parallelize by running `fit()` on disjoint
-slices and combining with `JacobianLens.merge()`.
+corpus. Quality saturates quickly (see section 9.3 of the paper); ~100 prompts
+is usable. This is a reference implementation and is not optimized; fitting
+time is dominated by the model's own backward pass. Parallelize by running
+`fit()` on disjoint slices and combining with `JacobianLens.merge()`.
 
-## Walkthrough
+## License
 
-[`walkthrough.ipynb`](walkthrough.ipynb) is the end-to-end notebook: load a
-model, load (or fit) a lens, apply it at a few layers, and render a slice page
-like the one above.
-
-Reading a slice page:
-
-- Each cell shows the lens top-1 word at that (position, layer); the
-  superscript is its rank over the full vocabulary.
-- Click a cell to select a (position, layer) and pin its top-1 token; pinned
-  tokens get rank-tracking charts and a rank heatmap.
-- The bottom row (`L = n_layers − 1`) is the model's actual output.
-
-## License and data
-
-Code is released under the Apache License 2.0 — see [LICENSE](LICENSE).
-
-The replication and lens-eval prompt sets in [`data/`](data/) are synthetic,
-authored by Anthropic, and released under the same Apache License 2.0 as the
-code. See the READMEs in [`data/experiments/`](data/experiments/) and
-[`data/evaluations/`](data/evaluations/) for what each set contains.
-
-The slice-vis pages use [d3](https://github.com/d3/d3) (ISC license), loaded
-from the jsDelivr CDN with subresource integrity or inlined into
-self-contained pages.
-
-No model weights or text corpora are bundled; models and datasets downloaded
-at run time are subject to their own licenses.
+Code is released under the Apache License 2.0 (see [LICENSE](LICENSE)).
