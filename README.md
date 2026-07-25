@@ -63,6 +63,24 @@ corpus. Quality saturates quickly (see section 9.3 of the paper), though, and
 ~100 prompts is usable. You can parallelize fitting by running multiple `fit()`s
 on different slices of your data, then combining all of them with `JacobianLens.merge()`.
 
+## Scripts
+
+### `fit.py`
+
+`scripts/fit.py` wraps `jlens.fit` into a CLI that handles model and dataset loading, metrics reporting, and early stopping.
+
+```bash
+python scripts/fit.py Qwen/Qwen3.5-0.8B --out_dir out/
+python scripts/fit.py meta-llama/Llama-3.1-8B --n_prompts 1000 --stop_at_delta 1e-3
+
+# actual usage
+python scripts/fit.py XiaomiMiMo/MiMo-7B-RL-0530 --out_dir lenses/mimo --dataset Salesforce/wikitext --dataset_config wikitext-103-raw-v1 --dataset_split train --text_field text --max_chars 2000 --n_prompts 1000 --dim_batch 64 --max_seq_len 128 --dtype bfloat16 --device_map cuda --min_prompts 100 --stop_window 10 --levels 1e-2,5e-3,1e-3 --stop_at_delta 0.002 --trust_remote_code
+```
+
+Refer to the help page for information about the command line arguments.
+
+The script writes a metrics log CSV to `<out_dir>/` alongside the fitted lens. The lens is checkpointed after every prompt fit.
+
 ## License
 
 Code is released under the Apache License 2.0 (see [LICENSE](LICENSE)).
