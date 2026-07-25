@@ -138,6 +138,7 @@ class ConvergenceTracker:
         stop_at_delta: float | None = None,
         min_prompts: int = 100,
         window: int = 10,
+        wandb_run: object | None = None,
     ) -> None:
         self.csv_path = csv_path
         self.thresholds = thresholds
@@ -148,6 +149,7 @@ class ConvergenceTracker:
         self.stopped_at: int | None = None
         self._crossed: dict[float, int] = {}
         self._recent: deque[float] = deque(maxlen=self.window)
+        self._wandb_run = wandb_run
         self._file = open(csv_path, "w", newline="")  # noqa: SIM115 (closed in close())
         self._writer = csv.writer(self._file)
         self._writer.writerow(
@@ -175,6 +177,19 @@ class ConvergenceTracker:
             ]
         )
         self._file.flush()
+        if self._wandb_run is not None:
+            self._wandb_run.log(
+                {
+                    "n_done": p.n_done,
+                    "prompt_idx": p.prompt_idx,
+                    "seq_len": p.seq_len,
+                    "n_valid_positions": p.n_valid_positions,
+                    "elapsed_s": p.elapsed_s,
+                    "identity_distance": p.identity_distance,
+                    "mean_rel_change": p.mean_rel_change,
+                },
+                step=p.n_done,
+            )
         if p.mean_rel_change != p.mean_rel_change:  # NaN (first prompt)
             return False
         self.history.append((p.n_done, p.mean_rel_change))
@@ -200,6 +215,8 @@ class ConvergenceTracker:
 
     def close(self) -> None:
         self._file.close()
+        if self._wandb_run is not None:
+            self._wandb_run.finish()
 
     def summary(self) -> str:
         lines = ["Convergence (Δmean = relative change of the running-mean Jacobian):"]
@@ -279,6 +296,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_chars", type=int, default=2000, help="target prompt length (chars)")
     parser.add_argument(
         "--trust_remote_code", action="store_true", help="pass through to HF loaders"
+    )
+
+    # Weights & Biases logging.
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="log metrics to Weights & Biases",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        default="jlens",
+        help="wandb project name",
+    )
+    parser.add_argument(
+        "--wandb_run_name",
+        default=None,
+        help="wandb run name (default: auto-generated)",
+    )
+    parser.add_argument(
+        "--wandb_tags",
+        default=None,
+        help="comma-separated wandb tags",
     )
 
     # Convergence reporting.
@@ -379,12 +418,49 @@ def main() -> None:
         if not prompts:
             raise SystemExit("no prompts loaded — check --dataset/--dataset_config/--text_field")
 
+        wandb_run = None
+        if args.wandb:
+            try:
+                import wandb
+            except ImportError:
+                raise SystemExit(
+                    "wandb is not installed. Install it with: pip install wandb"
+                )
+            tags = (
+                [t.strip() for t in args.wandb_tags.split(",") if t.strip()]
+                if args.wandb_tags
+                else None
+            )
+            wandb_run = wandb.init(
+                project=args.wandb_project,
+                name=args.wandb_run_name,
+                tags=tags,
+                config={
+                    "model": args.model,
+                    "n_prompts": args.n_prompts,
+                    "dim_batch": args.dim_batch,
+                    "max_seq_len": args.max_seq_len,
+                    "target_layer": args.target_layer,
+                    "dtype": args.dtype,
+                    "device_map": args.device_map,
+                    "dataset": args.dataset,
+                    "dataset_config": config,
+                    "dataset_split": args.dataset_split,
+                    "text_field": args.text_field,
+                    "max_chars": args.max_chars,
+                    "stop_at_delta": args.stop_at_delta,
+                    "min_prompts": args.min_prompts,
+                    "stop_window": args.stop_window,
+                },
+            )
+
         tracker = ConvergenceTracker(
             metrics_csv,
             thresholds,
             stop_at_delta=args.stop_at_delta,
             min_prompts=args.min_prompts,
             window=args.stop_window,
+            wandb_run=wandb_run,
         )
         print(f"Fitting lens over {len(prompts)} prompts (first call compiles, ~1-2 min) ...")
         try:
