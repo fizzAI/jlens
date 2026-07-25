@@ -1,6 +1,6 @@
 # jlens — Jacobian lens (fork)
 
-*This is a fork of the original [jlens](https://github.com/anthropics/jlens) repository that integrates minor changes from Neuronpedia's version of the code.*
+*This is a fork of the original [jlens](https://github.com/anthropics/jlens) repository that integrates minor changes from Neuronpedia's version of the code, as well as some other minor adjustments.*
 
 Companion code for [**Verbalizable Representations Form a Global Workspace in
 Language Models**](https://transformer-circuits.pub/2026/workspace/index.html).
