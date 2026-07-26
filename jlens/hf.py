@@ -101,6 +101,8 @@ class HFLensModel:
         force_bos: bool = True,
     ) -> None:
         self._hf_model = hf_model
+        if hasattr(tokenizer, "tokenizer"):
+            tokenizer = tokenizer.tokenizer # account for *Processors possibly being passed in
         self.tokenizer = tokenizer
         if (
             force_bos
