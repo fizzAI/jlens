@@ -25,7 +25,13 @@ the `transformers` library.
 ## Install
 
 ```bash
-pip install -e .
+uv sync # or uv pip install -e .
+```
+
+For fitting, it's recommended to install with the `fit` extra:
+
+```bash
+uv sync --extra fit # or uv pip install -e .[fit]
 ```
 
 ## Usage as a Library
