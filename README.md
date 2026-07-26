@@ -49,11 +49,32 @@ for layer, logits in sorted(lens_logits.items()):
     print(layer, [tok.decode([t]) for t in logits[0].topk(5).indices])
 ```
 
+Image-text-to-text models are also supported, however they strip off the multimodal encoders and only allow you to use text functionality via the library.
+
+```python
+import transformers, jlens
+
+hf = transformers.AutoModelForImageTextToText.from_pretrained("org/model").cuda()
+tok = transformers.AutoProcessor.from_pretrained("org/model")
+model = jlens.from_hf(hf, tok)
+
+lens = jlens.JacobianLens.from_pretrained("org/lens-repo", filename="model/lens.pt")
+lens_logits, model_logits, _ = lens.apply(
+    model, "Did you know that the Eiffel Tower is located in the city of",
+    positions=[-2])
+for layer, logits in sorted(lens_logits.items()):
+    print(layer, [tok.decode([t]) for t in logits[0].topk(5).indices])
+```
+
 ### Fit
 
 To fit a lens on your own model:
 
 ```python
+my_prompts = [
+    "Blah blah blah blah..."
+]
+
 lens = jlens.fit(model, prompts=my_prompts, checkpoint_path="out/ckpt.pt")
 lens.save("out/jacobian_lens.pt")
 ```
@@ -70,11 +91,11 @@ on different slices of your data, then combining all of them with `JacobianLens.
 `scripts/fit.py` wraps `jlens.fit` into a CLI that handles model and dataset loading, metrics reporting, and early stopping.
 
 ```bash
-python scripts/fit.py Qwen/Qwen3.5-0.8B --out_dir out/
-python scripts/fit.py meta-llama/Llama-3.1-8B --n_prompts 1000 --stop_at_delta 1e-3
+uv run -m fit Qwen/Qwen3.5-0.8B --out_dir out/
+uv run -m fit scripts/fit.py meta-llama/Llama-3.1-8B --n_prompts 1000 --stop_at_delta 1e-3
 
 # actual usage
-python scripts/fit.py XiaomiMiMo/MiMo-7B-RL-0530 --out_dir lenses/mimo --dataset Salesforce/wikitext --dataset_config wikitext-103-raw-v1 --dataset_split train --text_field text --max_chars 2000 --n_prompts 1000 --dim_batch 64 --max_seq_len 128 --dtype bfloat16 --device_map cuda --min_prompts 100 --stop_window 10 --levels 1e-2,5e-3,1e-3 --stop_at_delta 0.002 --trust_remote_code
+uv run -m fit XiaomiMiMo/MiMo-7B-RL-0530 --out_dir lenses/mimo --dataset Salesforce/wikitext --dataset_config wikitext-103-raw-v1 --dataset_split train --text_field text --max_chars 2000 --n_prompts 1000 --dim_batch 64 --max_seq_len 128 --dtype bfloat16 --device_map cuda --min_prompts 100 --stop_window 10 --levels 1e-2,5e-3,1e-3 --stop_at_delta 0.002 --trust_remote_code
 ```
 
 Refer to the help page for information about the command line arguments.
